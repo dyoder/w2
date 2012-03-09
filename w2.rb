@@ -2,14 +2,16 @@ require 'socket'
 require 'io/wait'
 
 class Events
-    
-  def initialize(event,size)
+  
+  Event = Struct.new(:connection)
+  
+  def initialize(size)
     @size = size
     @start = 0
     @end = 0
     @events = []
     @size.times do
-      @events << event.new
+      @events << Event.new
     end
   end
   
@@ -60,55 +62,39 @@ class ConnectionPool
   end
   
 end
-
+  
 class Server
   
-  ConnectionEvent = Struct.new(:socket)
-  RequestEvent = Struct.new(:connection)
-
   attr_accessor :requests
   
   def initialize(options)
     @worker_count, @worker = options.values_at(:count,:worker)
+  end
+  
+  def start 
     @pool = ConnectionPool.new(4096)
-    @pending = Events.new(ConnectionEvent,4096)
+    @pending = []
     @active = []
     @connections = []
     @workers = []
     @worker_count.times do 
-      events = Events.new(RequestEvent,4096)
+      events = Events.new(4096)
       @workers << events
       @worker.new(events).start
     end
     @current_worker = 0
-  end
-  
-  def start 
     @server = TCPServer.new(1337)
     @server.listen(4096)
-    accept_connections
-    process_requests
-  end
-  
-  def accept_connections
     Thread.new do
       loop do
         begin
-          socket = @server.accept
-          @pending.enqueue do |event|
-            event[:socket] = socket
+          events = IO.select([@server],nil,nil,0)
+          if events
+            begin
+              loop { @pending << @server.accept_nonblock }
+            rescue IO::WaitReadable, Errno::EAGAIN
+            end
           end
-        rescue Errno::EAGAIN
-          retry
-        end
-      end
-    end
-  end
-  
-  def process_requests
-    Thread.new do
-      loop do
-        begin
           inactive = @active.reject do |connection|
             connection.active?
           end
@@ -121,9 +107,8 @@ class Server
           @connections = @connections.reject do |connection|
             connection.closed?
           end
-          while @pending.events? 
-            @connections << @pending.dequeue[:socket]
-          end
+          @connections += @pending
+          @pending = []
           events = IO.select(@connections,nil,nil,0)
           if events
             @readable = events.first
@@ -143,7 +128,6 @@ class Server
       end
     end
   end
-  
 end
 
 class Worker
@@ -177,5 +161,5 @@ class Worker
   end
 end
 
-server = Server.new(:worker => Worker,:count => 4)
+server = Server.new(:worker => Worker,:count => 1)
 server.start.join
