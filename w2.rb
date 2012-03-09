@@ -2,16 +2,14 @@ require 'socket'
 require 'io/wait'
 
 class Events
-  
-  Event = Struct.new(:connection)
-  
-  def initialize(size)
+    
+  def initialize(event,size)
     @size = size
     @start = 0
     @end = 0
     @events = []
     @size.times do
-      @events << Event.new
+      @events << event.new
     end
   end
   
@@ -65,6 +63,8 @@ end
   
 class Server
   
+  RequestEvent = Struct.new(:connection)
+  
   attr_accessor :requests
   
   def initialize(options)
@@ -78,7 +78,7 @@ class Server
     @connections = []
     @workers = []
     @worker_count.times do 
-      events = Events.new(4096)
+      events = Events.new(RequestEvent,4096)
       @workers << events
       @worker.new(events).start
     end
@@ -145,8 +145,9 @@ class Worker
           socket = connection.socket
           begin
             request = ""
-            while socket.ready?
-              request += socket.read_nonblock(4096)
+            while line = socket.gets
+              break if line == "\r\n"
+              request += line
             end
             socket.print "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"
           rescue IOError, Errno::ECONNRESET, Errno::EPIPE
