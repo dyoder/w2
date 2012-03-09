@@ -161,8 +161,9 @@ class Worker
           socket = connection.socket
           begin
             request = ""
-            while socket.ready?
-              request += socket.read_nonblock(4096)
+            while line = socket.gets
+              break if line == "\r\n"
+              request += line
             end
             socket.print "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"
           rescue IOError, Errno::ECONNRESET, Errno::EPIPE
@@ -177,5 +178,5 @@ class Worker
   end
 end
 
-server = Server.new(:worker => Worker,:count => 4)
+server = Server.new(:worker => Worker,:count => 1)
 server.start.join
